@@ -1,0 +1,14 @@
+include: package:flutter_lints/flutter.yaml
+
+linter:
+  rules:
+    - always_declare_return_types
+    - avoid_empty_else
+    - avoid_print
+    - directives_ordering
+    - empty_catches
+    - hash_and_equals
+    - prefer_const_constructors
+    - prefer_final_fields
+    - prefer_single_quotes
+    - valid_regexps
