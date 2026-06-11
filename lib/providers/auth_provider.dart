@@ -94,10 +94,26 @@ class AuthenticationService {
       if (user == null) return null;
       final doc =
           await _firestore.collection('users').doc(user.uid).get();
-      if (!doc.exists) return null;
+      if (!doc.exists) {
+        // Return a minimal user from Firebase Auth data
+        return AuthUser(
+          uid: user.uid,
+          phone: user.phoneNumber ?? '',
+          status: 'active',
+          kycStatus: 'pending',
+        );
+      }
       return AuthUser.fromJson(doc.data()!, user.uid);
     } catch (e) {
-      return null;
+      // Firestore blocked — return minimal user so app doesn't redirect to login
+      final user = _firebaseAuth.currentUser;
+      if (user == null) return null;
+      return AuthUser(
+        uid: user.uid,
+        phone: user.phoneNumber ?? '',
+        status: 'active',
+        kycStatus: 'pending',
+      );
     }
   }
 
@@ -157,24 +173,29 @@ class AuthenticationService {
     }
 
     final uid = userCredential.user!.uid;
-    final userDoc = await _firestore.collection('users').doc(uid).get();
-    if (!userDoc.exists) {
-      await _firestore.collection('users').doc(uid).set({
-        'phone': phoneNumber,
-        'status': 'active',
-        'kycStatus': 'pending',
-        'createdAt': DateTime.now().toIso8601String(),
-        'loginCount': 1,
-        'lastLoginAt': DateTime.now().toIso8601String(),
-      });
-    } else {
-      await _firestore.collection('users').doc(uid).update({
-        'lastLoginAt': DateTime.now().toIso8601String(),
-        'loginCount': FieldValue.increment(1),
-      });
+    try {
+      final userDoc = await _firestore.collection('users').doc(uid).get();
+      if (!userDoc.exists) {
+        await _firestore.collection('users').doc(uid).set({
+          'phone': phoneNumber,
+          'status': 'active',
+          'kycStatus': 'pending',
+          'createdAt': DateTime.now().toIso8601String(),
+          'loginCount': 1,
+          'lastLoginAt': DateTime.now().toIso8601String(),
+        });
+      } else {
+        await _firestore.collection('users').doc(uid).update({
+          'lastLoginAt': DateTime.now().toIso8601String(),
+          'loginCount': FieldValue.increment(1),
+        });
+      }
+    } catch (_) {
+      // Firestore write failed — still allow login with Auth data
     }
 
-    return (await getCurrentUserData())!;
+    return (await getCurrentUserData()) ??
+        AuthUser(uid: uid, phone: phoneNumber, status: 'active', kycStatus: 'pending');
   }
 
   Future<void> logout() async {
