@@ -186,6 +186,12 @@ class LoanApplication {
   final DateTime? decidedAt;
   final DateTime? disbursedAt;
   final DateTime? expectedMaturityDate;
+  // Credit risk assessment fields (filled by approver)
+  final String? cibStatus;
+  final double? dbr;
+  final double? totalFundedOutstanding;
+  final double? totalNonFundedOutstanding;
+  final int? creditRiskScore;
 
   const LoanApplication({
     required this.loanId,
@@ -212,6 +218,11 @@ class LoanApplication {
     this.decidedAt,
     this.disbursedAt,
     this.expectedMaturityDate,
+    this.cibStatus,
+    this.dbr,
+    this.totalFundedOutstanding,
+    this.totalNonFundedOutstanding,
+    this.creditRiskScore,
   });
 
   factory LoanApplication.fromJson(
@@ -249,6 +260,15 @@ class LoanApplication {
       decidedAt: _parseDateNullable(json['decidedAt']),
       disbursedAt: _parseDateNullable(json['disbursedAt']),
       expectedMaturityDate: _parseDateNullable(json['expectedMaturityDate']),
+      cibStatus: json['cibStatus'],
+      dbr: json['dbr'] != null ? (json['dbr']).toDouble() : null,
+      totalFundedOutstanding: json['totalFundedOutstanding'] != null
+          ? (json['totalFundedOutstanding']).toDouble()
+          : null,
+      totalNonFundedOutstanding: json['totalNonFundedOutstanding'] != null
+          ? (json['totalNonFundedOutstanding']).toDouble()
+          : null,
+      creditRiskScore: json['creditRiskScore'],
     );
   }
 
@@ -276,6 +296,11 @@ class LoanApplication {
         'decidedAt': decidedAt?.toIso8601String(),
         'disbursedAt': disbursedAt?.toIso8601String(),
         'expectedMaturityDate': expectedMaturityDate?.toIso8601String(),
+        'cibStatus': cibStatus,
+        'dbr': dbr,
+        'totalFundedOutstanding': totalFundedOutstanding,
+        'totalNonFundedOutstanding': totalNonFundedOutstanding,
+        'creditRiskScore': creditRiskScore,
       };
 }
 

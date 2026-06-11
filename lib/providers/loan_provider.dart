@@ -157,6 +157,11 @@ class LoanService {
     required double approvedAmount,
     required int approvedTenureMonths,
     String? internalNotes,
+    required String cibStatus,
+    required double dbr,
+    required double totalFundedOutstanding,
+    required double totalNonFundedOutstanding,
+    required int creditRiskScore,
   }) async {
     await _firestore.collection('loan_applications').doc(loanId).update({
       'status': 'approved',
@@ -164,6 +169,11 @@ class LoanService {
       'approvedTenureMonths': approvedTenureMonths,
       if (internalNotes != null && internalNotes.isNotEmpty)
         'internalNotes': internalNotes,
+      'cibStatus': cibStatus,
+      'dbr': dbr,
+      'totalFundedOutstanding': totalFundedOutstanding,
+      'totalNonFundedOutstanding': totalNonFundedOutstanding,
+      'creditRiskScore': creditRiskScore,
       'decidedAt': DateTime.now().toIso8601String(),
     });
   }
@@ -171,10 +181,22 @@ class LoanService {
   Future<void> rejectLoan(
     String loanId, {
     required String rejectionReason,
+    String? cibStatus,
+    double? dbr,
+    double? totalFundedOutstanding,
+    double? totalNonFundedOutstanding,
+    int? creditRiskScore,
   }) async {
     await _firestore.collection('loan_applications').doc(loanId).update({
       'status': 'rejected',
       'rejectionReason': rejectionReason,
+      if (cibStatus != null) 'cibStatus': cibStatus,
+      if (dbr != null) 'dbr': dbr,
+      if (totalFundedOutstanding != null)
+        'totalFundedOutstanding': totalFundedOutstanding,
+      if (totalNonFundedOutstanding != null)
+        'totalNonFundedOutstanding': totalNonFundedOutstanding,
+      if (creditRiskScore != null) 'creditRiskScore': creditRiskScore,
       'decidedAt': DateTime.now().toIso8601String(),
     });
   }

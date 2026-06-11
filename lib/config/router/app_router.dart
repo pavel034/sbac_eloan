@@ -2664,6 +2664,12 @@ class LoanAuthorizationDetailScreen extends ConsumerWidget {
               ),
               const SizedBox(height: 16),
 
+              // Credit Risk Assessment card (shown after decision)
+              if (loan.cibStatus != null) ...[
+                _CreditRiskCard(loan: loan),
+                const SizedBox(height: 16),
+              ],
+
               if (loan.status == LoanApplicationStatus.approved ||
                   loan.status == LoanApplicationStatus.rejected) ...[
                 Card(
@@ -2761,91 +2767,200 @@ class LoanAuthorizationDetailScreen extends ConsumerWidget {
     final amountCtrl = TextEditingController(
         text: loan.requestedAmount.toStringAsFixed(0));
     final notesCtrl = TextEditingController();
+    final dbrCtrl = TextEditingController();
+    final fundedCtrl = TextEditingController();
+    final nonFundedCtrl = TextEditingController();
     int tenure = loan.loanTenureMonths;
+    String cibStatus = 'STD';
     final formKey = GlobalKey<FormState>();
 
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setState) => AlertDialog(
-          title: const Text('Approve Application'),
-          content: Form(
-            key: formKey,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextFormField(
-                  controller: amountCtrl,
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(
-                    labelText: 'Approved Amount (BDT)',
-                    prefixIcon: Icon(Icons.attach_money),
+        builder: (ctx, setState) {
+          final dbr = double.tryParse(dbrCtrl.text) ?? 0;
+          final score = _calcCreditRiskScore(cibStatus, dbr);
+          final canApprove = cibStatus == 'STD';
+
+          return AlertDialog(
+            title: const Text('Credit Risk Assessment & Approval'),
+            scrollable: true,
+            content: Form(
+              key: formKey,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // CIB Status
+                  DropdownButtonFormField<String>(
+                    value: cibStatus,
+                    decoration: const InputDecoration(
+                      labelText: 'CIB Status *',
+                      prefixIcon: Icon(Icons.verified_user_outlined),
+                    ),
+                    items: const [
+                      DropdownMenuItem(value: 'STD', child: Text('STD — Standard')),
+                      DropdownMenuItem(value: 'SMA', child: Text('SMA — Special Mention')),
+                      DropdownMenuItem(value: 'SS',  child: Text('SS — Sub-Standard')),
+                      DropdownMenuItem(value: 'DF',  child: Text('DF — Doubtful')),
+                      DropdownMenuItem(value: 'BL',  child: Text('BL — Bad/Loss')),
+                    ],
+                    onChanged: (v) => setState(() => cibStatus = v ?? cibStatus),
+                    validator: (v) => v == null ? 'Required' : null,
                   ),
-                  validator: (v) {
-                    final n = double.tryParse(v ?? '');
-                    if (n == null || n <= 0) return 'Enter valid amount';
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 16),
-                DropdownButtonFormField<int>(
-                  value: tenure,
-                  decoration: const InputDecoration(
-                      labelText: 'Approved Tenure'),
-                  items: [3, 6, 9, 12]
-                      .map((m) => DropdownMenuItem(
-                          value: m, child: Text('$m months')))
-                      .toList(),
-                  onChanged: (v) => setState(() => tenure = v ?? tenure),
-                ),
-                const SizedBox(height: 16),
-                TextFormField(
-                  controller: notesCtrl,
-                  maxLines: 2,
-                  decoration: const InputDecoration(
-                    labelText: 'Internal Notes (optional)',
-                    prefixIcon: Icon(Icons.note_outlined),
+                  if (!canApprove) ...[
+                    const SizedBox(height: 8),
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: Colors.red.shade50,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.red.shade200),
+                      ),
+                      child: Row(children: [
+                        Icon(Icons.block, color: Colors.red.shade700, size: 18),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Only STD status is eligible for approval. This loan must be rejected.',
+                            style: TextStyle(color: Colors.red.shade700, fontSize: 12),
+                          ),
+                        ),
+                      ]),
+                    ),
+                  ],
+                  const SizedBox(height: 16),
+                  // DBR
+                  TextFormField(
+                    controller: dbrCtrl,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    decoration: const InputDecoration(
+                      labelText: 'DBR — Debt Burden Ratio (%) *',
+                      prefixIcon: Icon(Icons.percent),
+                      hintText: 'e.g. 35',
+                    ),
+                    onChanged: (_) => setState(() {}),
+                    validator: (v) {
+                      final n = double.tryParse(v ?? '');
+                      if (n == null || n < 0 || n > 100) return 'Enter 0–100';
+                      return null;
+                    },
                   ),
+                  const SizedBox(height: 16),
+                  // Outstanding
+                  TextFormField(
+                    controller: fundedCtrl,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      labelText: 'Total Funded Loan Outstanding (BDT) *',
+                      prefixIcon: Icon(Icons.account_balance_outlined),
+                    ),
+                    validator: (v) {
+                      if (double.tryParse(v ?? '') == null) return 'Enter valid amount';
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: nonFundedCtrl,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      labelText: 'Total Non-Funded Outstanding (BDT) *',
+                      prefixIcon: Icon(Icons.account_balance_wallet_outlined),
+                      hintText: 'LC, guarantees, etc.',
+                    ),
+                    validator: (v) {
+                      if (double.tryParse(v ?? '') == null) return 'Enter valid amount';
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  // Credit risk score preview
+                  if (dbrCtrl.text.isNotEmpty)
+                    _RiskScoreBadge(score: score, cibStatus: cibStatus),
+                  const SizedBox(height: 16),
+                  // Loan decision fields
+                  TextFormField(
+                    controller: amountCtrl,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      labelText: 'Approved Amount (BDT)',
+                      prefixIcon: Icon(Icons.attach_money),
+                    ),
+                    validator: (v) {
+                      final n = double.tryParse(v ?? '');
+                      if (n == null || n <= 0) return 'Enter valid amount';
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  DropdownButtonFormField<int>(
+                    value: tenure,
+                    decoration: const InputDecoration(labelText: 'Approved Tenure'),
+                    items: [3, 6, 9, 12, 18, 24, 36, 48, 60]
+                        .map((m) => DropdownMenuItem(value: m, child: Text('$m months')))
+                        .toList(),
+                    onChanged: (v) => setState(() => tenure = v ?? tenure),
+                  ),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: notesCtrl,
+                    maxLines: 2,
+                    decoration: const InputDecoration(
+                      labelText: 'Internal Notes (optional)',
+                      prefixIcon: Icon(Icons.note_outlined),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                style: FilledButton.styleFrom(
+                  backgroundColor: canApprove
+                      ? const Color(0xFF10B981)
+                      : Colors.grey.shade400,
                 ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              style: FilledButton.styleFrom(
-                  backgroundColor: const Color(0xFF10B981)),
-              onPressed: () {
-                if (formKey.currentState!.validate()) {
-                  Navigator.pop(ctx, true);
-                }
-              },
-              child: const Text('Approve'),
-            ),
-          ],
-        ),
+                onPressed: canApprove
+                    ? () {
+                        if (formKey.currentState!.validate()) {
+                          Navigator.pop(ctx, true);
+                        }
+                      }
+                    : null,
+                child: const Text('Approve'),
+              ),
+            ],
+          );
+        },
       ),
     );
 
     if (confirmed == true && context.mounted) {
       try {
+        final dbr = double.parse(dbrCtrl.text);
+        final score = _calcCreditRiskScore(cibStatus, dbr);
         await ref.read(loanServiceProvider).approveLoan(
               loan.loanId,
-              approvedAmount:
-                  double.parse(amountCtrl.text.replaceAll(',', '')),
+              approvedAmount: double.parse(amountCtrl.text.replaceAll(',', '')),
               approvedTenureMonths: tenure,
               internalNotes: notesCtrl.text,
+              cibStatus: cibStatus,
+              dbr: dbr,
+              totalFundedOutstanding: double.parse(fundedCtrl.text),
+              totalNonFundedOutstanding: double.parse(nonFundedCtrl.text),
+              creditRiskScore: score,
             );
         ref.invalidate(loanDetailsProvider(loan.loanId));
         ref.invalidate(pendingApplicationsProvider);
         ref.invalidate(allApplicationsProvider);
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-                content: Text('Application approved successfully')),
+            const SnackBar(content: Text('Application approved successfully')),
           );
           context.pop();
         }
@@ -2865,49 +2980,129 @@ class LoanAuthorizationDetailScreen extends ConsumerWidget {
     LoanApplication loan,
   ) async {
     final reasonCtrl = TextEditingController();
+    final dbrCtrl = TextEditingController();
+    final fundedCtrl = TextEditingController(text: '0');
+    final nonFundedCtrl = TextEditingController(text: '0');
+    String? cibStatus;
     final formKey = GlobalKey<FormState>();
 
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Reject Application'),
-        content: Form(
-          key: formKey,
-          child: TextFormField(
-            controller: reasonCtrl,
-            maxLines: 3,
-            decoration: const InputDecoration(
-              labelText: 'Rejection Reason',
-              hintText: 'Explain why this application is being rejected...',
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setState) {
+          final dbr = double.tryParse(dbrCtrl.text) ?? 0;
+          final score = cibStatus != null
+              ? _calcCreditRiskScore(cibStatus!, dbr)
+              : null;
+          return AlertDialog(
+            title: const Text('Reject Application'),
+            scrollable: true,
+            content: Form(
+              key: formKey,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextFormField(
+                    controller: reasonCtrl,
+                    maxLines: 3,
+                    decoration: const InputDecoration(
+                      labelText: 'Rejection Reason *',
+                      hintText: 'Explain why this application is being rejected...',
+                    ),
+                    validator: (v) =>
+                        v == null || v.trim().isEmpty ? 'Reason is required' : null,
+                  ),
+                  const SizedBox(height: 16),
+                  const Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text('Credit Assessment (optional)',
+                        style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                  ),
+                  const SizedBox(height: 8),
+                  DropdownButtonFormField<String>(
+                    value: cibStatus,
+                    decoration: const InputDecoration(
+                      labelText: 'CIB Status',
+                      prefixIcon: Icon(Icons.verified_user_outlined),
+                    ),
+                    items: const [
+                      DropdownMenuItem(value: 'STD', child: Text('STD — Standard')),
+                      DropdownMenuItem(value: 'SMA', child: Text('SMA — Special Mention')),
+                      DropdownMenuItem(value: 'SS',  child: Text('SS — Sub-Standard')),
+                      DropdownMenuItem(value: 'DF',  child: Text('DF — Doubtful')),
+                      DropdownMenuItem(value: 'BL',  child: Text('BL — Bad/Loss')),
+                    ],
+                    onChanged: (v) => setState(() => cibStatus = v),
+                  ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: dbrCtrl,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    decoration: const InputDecoration(
+                      labelText: 'DBR (%)',
+                      prefixIcon: Icon(Icons.percent),
+                    ),
+                    onChanged: (_) => setState(() {}),
+                  ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: fundedCtrl,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      labelText: 'Total Funded Outstanding (BDT)',
+                      prefixIcon: Icon(Icons.account_balance_outlined),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: nonFundedCtrl,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      labelText: 'Total Non-Funded Outstanding (BDT)',
+                      prefixIcon: Icon(Icons.account_balance_wallet_outlined),
+                    ),
+                  ),
+                  if (score != null) ...[
+                    const SizedBox(height: 12),
+                    _RiskScoreBadge(score: score, cibStatus: cibStatus!),
+                  ],
+                ],
+              ),
             ),
-            validator: (v) =>
-                v == null || v.trim().isEmpty ? 'Reason is required' : null,
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            style:
-                FilledButton.styleFrom(backgroundColor: Colors.red),
-            onPressed: () {
-              if (formKey.currentState!.validate()) {
-                Navigator.pop(ctx, true);
-              }
-            },
-            child: const Text('Reject'),
-          ),
-        ],
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                style: FilledButton.styleFrom(backgroundColor: Colors.red),
+                onPressed: () {
+                  if (formKey.currentState!.validate()) {
+                    Navigator.pop(ctx, true);
+                  }
+                },
+                child: const Text('Reject'),
+              ),
+            ],
+          );
+        },
       ),
     );
 
     if (confirmed == true && context.mounted) {
       try {
+        final dbr = double.tryParse(dbrCtrl.text);
+        final score = cibStatus != null && dbr != null
+            ? _calcCreditRiskScore(cibStatus!, dbr)
+            : null;
         await ref.read(loanServiceProvider).rejectLoan(
               loan.loanId,
               rejectionReason: reasonCtrl.text.trim(),
+              cibStatus: cibStatus,
+              dbr: dbr,
+              totalFundedOutstanding: double.tryParse(fundedCtrl.text),
+              totalNonFundedOutstanding: double.tryParse(nonFundedCtrl.text),
+              creditRiskScore: score,
             );
         ref.invalidate(loanDetailsProvider(loan.loanId));
         ref.invalidate(pendingApplicationsProvider);
@@ -2926,5 +3121,196 @@ class LoanAuthorizationDetailScreen extends ConsumerWidget {
         }
       }
     }
+  }
+
+  static int _calcCreditRiskScore(String cibStatus, double dbr) {
+    final cibScore = switch (cibStatus) {
+      'STD' => 100,
+      'SMA' => 65,
+      'SS'  => 40,
+      'DF'  => 20,
+      'BL'  => 0,
+      _     => 50,
+    };
+    final dbrScore = dbr <= 30
+        ? 100
+        : dbr <= 40
+            ? 80
+            : dbr <= 50
+                ? 60
+                : dbr <= 60
+                    ? 40
+                    : 20;
+    return ((cibScore * 0.6) + (dbrScore * 0.4)).round();
+  }
+}
+
+// ── Credit Risk Assessment card shown on detail screen ──────────────────────
+
+class _CreditRiskCard extends StatelessWidget {
+  final LoanApplication loan;
+  const _CreditRiskCard({required this.loan});
+
+  @override
+  Widget build(BuildContext context) {
+    final score = loan.creditRiskScore ?? 0;
+    final cib = loan.cibStatus ?? '';
+    final Color scoreColor = score >= 80
+        ? const Color(0xFF10B981)
+        : score >= 60
+            ? Colors.orange
+            : Colors.red;
+
+    return Card(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(children: [
+              const Icon(Icons.analytics_outlined, size: 20),
+              const SizedBox(width: 8),
+              Text('Credit Risk Assessment',
+                  style: Theme.of(context).textTheme.titleMedium),
+              const Spacer(),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                decoration: BoxDecoration(
+                  color: scoreColor.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: scoreColor),
+                ),
+                child: Text('Score: $score',
+                    style: TextStyle(
+                        color: scoreColor,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13)),
+              ),
+            ]),
+            const Divider(height: 20),
+            // CIB status chip
+            Row(children: [
+              const Text('CIB Status: ',
+                  style: TextStyle(color: Colors.black54, fontSize: 13)),
+              _CibChip(status: cib),
+            ]),
+            const SizedBox(height: 8),
+            if (loan.dbr != null)
+              InfoRow(
+                label: 'Debt Burden Ratio (DBR)',
+                value: '${loan.dbr!.toStringAsFixed(1)}%',
+                valueColor: loan.dbr! <= 40
+                    ? const Color(0xFF10B981)
+                    : loan.dbr! <= 50
+                        ? Colors.orange
+                        : Colors.red,
+              ),
+            if (loan.totalFundedOutstanding != null)
+              InfoRow(
+                label: 'Funded Loan Outstanding',
+                value: loan.totalFundedOutstanding!.asCurrency,
+              ),
+            if (loan.totalNonFundedOutstanding != null)
+              InfoRow(
+                label: 'Non-Funded Outstanding',
+                value: loan.totalNonFundedOutstanding!.asCurrency,
+              ),
+            if (loan.totalFundedOutstanding != null &&
+                loan.totalNonFundedOutstanding != null) ...[
+              const Divider(height: 16),
+              InfoRow(
+                label: 'Total Exposure',
+                value: (loan.totalFundedOutstanding! +
+                        loan.totalNonFundedOutstanding!)
+                    .asCurrency,
+                valueColor: Theme.of(context).colorScheme.primary,
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CibChip extends StatelessWidget {
+  final String status;
+  const _CibChip({required this.status});
+
+  @override
+  Widget build(BuildContext context) {
+    final color = switch (status) {
+      'STD' => const Color(0xFF10B981),
+      'SMA' => Colors.amber,
+      'SS'  => Colors.orange,
+      'DF'  => Colors.deepOrange,
+      'BL'  => Colors.red,
+      _     => Colors.grey,
+    };
+    final label = switch (status) {
+      'STD' => 'STD — Standard',
+      'SMA' => 'SMA — Special Mention',
+      'SS'  => 'SS — Sub-Standard',
+      'DF'  => 'DF — Doubtful',
+      'BL'  => 'BL — Bad/Loss',
+      _     => status,
+    };
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color),
+      ),
+      child: Text(label,
+          style: TextStyle(
+              color: color, fontSize: 12, fontWeight: FontWeight.w600)),
+    );
+  }
+}
+
+class _RiskScoreBadge extends StatelessWidget {
+  final int score;
+  final String cibStatus;
+  const _RiskScoreBadge({required this.score, required this.cibStatus});
+
+  @override
+  Widget build(BuildContext context) {
+    final Color color = score >= 80
+        ? const Color(0xFF10B981)
+        : score >= 60
+            ? Colors.orange
+            : Colors.red;
+    final String grade = score >= 80
+        ? 'Low Risk'
+        : score >= 60
+            ? 'Moderate Risk'
+            : score >= 40
+                ? 'High Risk'
+                : 'Very High Risk';
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: color.withOpacity(0.4)),
+      ),
+      child: Row(children: [
+        Icon(Icons.shield_outlined, color: color),
+        const SizedBox(width: 10),
+        Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text('Credit Risk Score: $score / 100',
+              style: TextStyle(
+                  color: color, fontWeight: FontWeight.bold, fontSize: 14)),
+          Text(grade,
+              style: TextStyle(color: color.withOpacity(0.8), fontSize: 12)),
+        ]),
+        const Spacer(),
+        _CibChip(status: cibStatus),
+      ]),
+    );
   }
 }
