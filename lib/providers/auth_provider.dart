@@ -439,12 +439,9 @@ class AuthStateNotifier extends StateNotifier<AsyncValue<AuthUser?>> {
   }
 
   Future<void> logout() async {
-    state = const AsyncValue.loading();
-    state = await AsyncValue.guard(() async {
-      final svc = await _ref.read(authServiceProvider.future);
-      await svc.logout();
-      return null;
-    });
+    final svc = await _ref.read(authServiceProvider.future);
+    await svc.logout();
+    if (mounted) state = const AsyncValue.data(null);
   }
 
   Future<void> updateProfile({
@@ -452,14 +449,18 @@ class AuthStateNotifier extends StateNotifier<AsyncValue<AuthUser?>> {
     String? email,
     String? kycStatus,
   }) async {
-    state = const AsyncValue.loading();
-    state = await AsyncValue.guard(() async {
+    // Do NOT set loading state — it redirects to splash and blocks navigation
+    try {
       final svc = await _ref.read(authServiceProvider.future);
-      return svc.updateUserProfile(
+      final updated = await svc.updateUserProfile(
         fullName: fullName,
         email: email,
         kycStatus: kycStatus,
       );
-    });
+      if (mounted) state = AsyncValue.data(updated);
+    } catch (e, st) {
+      // Keep current state on failure and rethrow so caller can show error
+      Error.throwWithStackTrace(e, st);
+    }
   }
 }
