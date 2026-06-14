@@ -198,6 +198,90 @@ class AuthenticationService {
         AuthUser(uid: uid, phone: phoneNumber, status: 'active', kycStatus: 'pending');
   }
 
+  Future<AuthUser> registerWithEmail({
+    required String fullName,
+    required String email,
+    required String password,
+  }) async {
+    final credential = await _firebaseAuth.createUserWithEmailAndPassword(
+      email: email,
+      password: password,
+    );
+    final user = credential.user!;
+    await user.updateDisplayName(fullName);
+    await user.sendEmailVerification();
+    try {
+      await _firestore.collection('users').doc(user.uid).set({
+        'email': email,
+        'fullName': fullName,
+        'phone': '',
+        'status': 'active',
+        'kycStatus': 'pending',
+        'isAdmin': false,
+        'createdAt': DateTime.now().toIso8601String(),
+        'loginCount': 0,
+      });
+    } catch (_) {}
+    // Sign out immediately — user must verify email before logging in
+    await _firebaseAuth.signOut();
+    return AuthUser(
+      uid: user.uid,
+      phone: '',
+      email: email,
+      fullName: fullName,
+      status: 'active',
+      kycStatus: 'pending',
+    );
+  }
+
+  Future<AuthUser> loginWithEmail({
+    required String email,
+    required String password,
+  }) async {
+    final credential = await _firebaseAuth.signInWithEmailAndPassword(
+      email: email,
+      password: password,
+    );
+    final user = credential.user!;
+    if (!user.emailVerified) {
+      await _firebaseAuth.signOut();
+      throw Exception('EMAIL_NOT_VERIFIED');
+    }
+    try {
+      await _firestore.collection('users').doc(user.uid).update({
+        'lastLoginAt': DateTime.now().toIso8601String(),
+        'loginCount': FieldValue.increment(1),
+      });
+    } catch (_) {}
+    return (await getCurrentUserData()) ??
+        AuthUser(
+          uid: user.uid,
+          phone: '',
+          email: email,
+          status: 'active',
+          kycStatus: 'pending',
+        );
+  }
+
+  Future<void> sendEmailVerification() async {
+    // Re-sign in required since we sign out after registration
+    // Just send to the last known user if still available
+    await _firebaseAuth.currentUser?.sendEmailVerification();
+  }
+
+  Future<void> sendVerificationToEmail(String email, String password) async {
+    try {
+      final cred = await _firebaseAuth.signInWithEmailAndPassword(
+          email: email, password: password);
+      await cred.user?.sendEmailVerification();
+      await _firebaseAuth.signOut();
+    } catch (_) {}
+  }
+
+  Future<void> resetPassword(String email) async {
+    await _firebaseAuth.sendPasswordResetEmail(email: email);
+  }
+
   Future<void> logout() async {
     await _prefs.clear();
     await _firebaseAuth.signOut();
@@ -278,8 +362,14 @@ class AuthStateNotifier extends StateNotifier<AsyncValue<AuthUser?>> {
   }
 
   void _resolveAuthState(AsyncValue<User?> next) {
-    if (!next.hasValue) return; // still loading or error — keep current state
+    if (!next.hasValue) return;
     if (next.value != null) {
+      final firebaseUser = next.value!;
+      // Email-auth users must verify their email before being treated as logged in
+      if (firebaseUser.email != null && !firebaseUser.emailVerified) {
+        state = const AsyncValue.data(null);
+        return;
+      }
       _ref.read(authServiceProvider.future).then((svc) async {
         if (mounted) state = AsyncValue.data(await svc.getCurrentUserData());
       });
@@ -305,6 +395,47 @@ class AuthStateNotifier extends StateNotifier<AsyncValue<AuthUser?>> {
     // Set state immediately so the router can redirect to home right away.
     // The authStateProvider stream will also fire shortly and confirm this.
     if (mounted) state = AsyncValue.data(user);
+  }
+
+  Future<void> loginWithEmail({
+    required String email,
+    required String password,
+  }) async {
+    // Do NOT set loading state — it redirects to splash and causes the login
+    // page to "bounce". Handle loading in the UI widget instead.
+    try {
+      final svc = await _ref.read(authServiceProvider.future);
+      final user = await svc.loginWithEmail(email: email, password: password);
+      if (mounted) state = AsyncValue.data(user);
+    } catch (e, st) {
+      // Keep state as unauthenticated (not error) so the router stays on login
+      if (mounted) state = const AsyncValue.data(null);
+      Error.throwWithStackTrace(e, st);
+    }
+  }
+
+  Future<void> registerWithEmail({
+    required String fullName,
+    required String email,
+    required String password,
+  }) async {
+    final svc = await _ref.read(authServiceProvider.future);
+    await svc.registerWithEmail(
+      fullName: fullName,
+      email: email,
+      password: password,
+    );
+    // Keep state as unauthenticated — user must verify email first
+  }
+
+  Future<void> resendVerificationEmail(String email, String password) async {
+    final svc = await _ref.read(authServiceProvider.future);
+    await svc.sendVerificationToEmail(email, password);
+  }
+
+  Future<void> resetPassword(String email) async {
+    final svc = await _ref.read(authServiceProvider.future);
+    await svc.resetPassword(email);
   }
 
   Future<void> logout() async {
