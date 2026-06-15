@@ -76,6 +76,41 @@ class AuthUser {
   }
 }
 
+// Maps Firebase error codes to user-friendly messages
+String _friendlyAuthError(Object e) {
+  final msg = e.toString();
+  if (msg.contains('network-request-failed') ||
+      msg.contains('network_error') ||
+      msg.contains('SocketException') ||
+      msg.contains('TimeoutException')) {
+    return 'No internet connection. Please check your network and try again.';
+  }
+  if (msg.contains('user-not-found')) return 'No account found with this email.';
+  if (msg.contains('wrong-password') || msg.contains('invalid-credential')) {
+    return 'Incorrect email or password.';
+  }
+  if (msg.contains('email-already-in-use')) {
+    return 'This email is already registered. Please log in instead.';
+  }
+  if (msg.contains('weak-password')) {
+    return 'Password is too weak. Use at least 6 characters.';
+  }
+  if (msg.contains('invalid-email')) return 'Invalid email address format.';
+  if (msg.contains('too-many-requests')) {
+    return 'Too many attempts. Please wait a few minutes and try again.';
+  }
+  if (msg.contains('user-disabled')) {
+    return 'This account has been disabled. Contact support.';
+  }
+  if (msg.contains('EMAIL_NOT_VERIFIED')) {
+    return 'Please verify your email first. Check your inbox for a verification link.';
+  }
+  if (msg.contains('operation-not-allowed')) {
+    return 'Email/Password login is not enabled. Contact administrator.';
+  }
+  return msg.replaceAll('Exception: ', '').replaceAll('[firebase_auth/', '').replaceAll(']', '');
+}
+
 class AuthenticationService {
   final FirebaseAuth _firebaseAuth = FirebaseAuth.instance;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -203,64 +238,77 @@ class AuthenticationService {
     required String email,
     required String password,
   }) async {
-    final credential = await _firebaseAuth.createUserWithEmailAndPassword(
-      email: email,
-      password: password,
-    );
-    final user = credential.user!;
-    await user.updateDisplayName(fullName);
-    await user.sendEmailVerification();
     try {
-      await _firestore.collection('users').doc(user.uid).set({
-        'email': email,
-        'fullName': fullName,
-        'phone': '',
-        'status': 'active',
-        'kycStatus': 'pending',
-        'isAdmin': false,
-        'createdAt': DateTime.now().toIso8601String(),
-        'loginCount': 0,
-      });
-    } catch (_) {}
-    // Sign out immediately — user must verify email before logging in
-    await _firebaseAuth.signOut();
-    return AuthUser(
-      uid: user.uid,
-      phone: '',
-      email: email,
-      fullName: fullName,
-      status: 'active',
-      kycStatus: 'pending',
-    );
+      final credential = await _firebaseAuth.createUserWithEmailAndPassword(
+        email: email,
+        password: password,
+      );
+      final user = credential.user!;
+      await user.updateDisplayName(fullName);
+      await user.sendEmailVerification();
+      try {
+        await _firestore.collection('users').doc(user.uid).set({
+          'email': email,
+          'fullName': fullName,
+          'phone': '',
+          'status': 'active',
+          'kycStatus': 'pending',
+          'isAdmin': false,
+          'createdAt': DateTime.now().toIso8601String(),
+          'loginCount': 0,
+        });
+      } catch (_) {}
+      // Sign out immediately — user must verify email before logging in
+      await _firebaseAuth.signOut();
+      return AuthUser(
+        uid: user.uid,
+        phone: '',
+        email: email,
+        fullName: fullName,
+        status: 'active',
+        kycStatus: 'pending',
+      );
+    } on FirebaseAuthException catch (e) {
+      throw Exception(_friendlyAuthError(e));
+    } catch (e) {
+      throw Exception(_friendlyAuthError(e));
+    }
   }
 
   Future<AuthUser> loginWithEmail({
     required String email,
     required String password,
   }) async {
-    final credential = await _firebaseAuth.signInWithEmailAndPassword(
-      email: email,
-      password: password,
-    );
-    final user = credential.user!;
-    if (!user.emailVerified) {
-      await _firebaseAuth.signOut();
-      throw Exception('EMAIL_NOT_VERIFIED');
-    }
     try {
-      await _firestore.collection('users').doc(user.uid).update({
-        'lastLoginAt': DateTime.now().toIso8601String(),
-        'loginCount': FieldValue.increment(1),
-      });
-    } catch (_) {}
-    return (await getCurrentUserData()) ??
-        AuthUser(
-          uid: user.uid,
-          phone: '',
-          email: email,
-          status: 'active',
-          kycStatus: 'pending',
-        );
+      final credential = await _firebaseAuth.signInWithEmailAndPassword(
+        email: email,
+        password: password,
+      );
+      final user = credential.user!;
+      if (!user.emailVerified) {
+        await _firebaseAuth.signOut();
+        throw Exception('EMAIL_NOT_VERIFIED');
+      }
+      try {
+        await _firestore.collection('users').doc(user.uid).update({
+          'lastLoginAt': DateTime.now().toIso8601String(),
+          'loginCount': FieldValue.increment(1),
+        });
+      } catch (_) {}
+      return (await getCurrentUserData()) ??
+          AuthUser(
+            uid: user.uid,
+            phone: '',
+            email: email,
+            status: 'active',
+            kycStatus: 'pending',
+          );
+    } on FirebaseAuthException catch (e) {
+      throw Exception(_friendlyAuthError(e));
+    } catch (e) {
+      if (e.toString().contains('EMAIL_NOT_VERIFIED')) rethrow;
+      throw Exception(_friendlyAuthError(e));
+    }
   }
 
   Future<void> sendEmailVerification() async {

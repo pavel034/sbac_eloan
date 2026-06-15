@@ -22,18 +22,23 @@ android {
 
     defaultConfig {
         applicationId = "com.sbac.eloan"
-        minSdk = flutter.minSdkVersion
-        targetSdk = flutter.targetSdkVersion
+        minSdk = flutter.minSdkVersion          // Android 5.0 Lollipop — covers 99%+ of devices
+        targetSdk = 34       // Android 14
         versionCode = flutter.versionCode
         versionName = flutter.versionName
         multiDexEnabled = true
+
+        ndk {
+            // Include only ARM architectures for real devices.
+            // x86/x86_64 emulators can use the ARM translation layer.
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+        }
     }
 
     buildFeatures {
         aidl = false
         renderScript = false
         resValues = false
-        shaders = false
     }
 
     buildTypes {

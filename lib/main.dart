@@ -37,15 +37,89 @@ void main() async {
     );
   };
 
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  );
+  // Catch all unhandled Flutter framework errors
+  FlutterError.onError = (details) {
+    FlutterError.presentError(details);
+  };
+
+  try {
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    ).timeout(
+      const Duration(seconds: 15),
+      onTimeout: () => throw Exception(
+          'Firebase initialization timed out. Check your internet connection.'),
+    );
+  } catch (e) {
+    runApp(_FirebaseErrorApp(message: e.toString()));
+    return;
+  }
 
   runApp(
     const ProviderScope(
       child: MyApp(),
     ),
   );
+}
+
+class _FirebaseErrorApp extends StatelessWidget {
+  final String message;
+  const _FirebaseErrorApp({required this.message});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      home: Scaffold(
+        backgroundColor: const Color(0xFF1E40AF),
+        body: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(32),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.cloud_off, color: Colors.white, size: 72),
+                const SizedBox(height: 24),
+                const Text('Connection Error',
+                    style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 22,
+                        fontWeight: FontWeight.bold)),
+                const SizedBox(height: 12),
+                const Text(
+                  'Could not connect to Firebase services.\nPlease check your internet connection and try again.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Colors.white70, fontSize: 14),
+                ),
+                const SizedBox(height: 32),
+                ElevatedButton.icon(
+                  onPressed: () {
+                    // Restart the app by calling main again
+                    main();
+                  },
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('Retry'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.white,
+                    foregroundColor: const Color(0xFF1E40AF),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 32, vertical: 14),
+                  ),
+                ),
+                const SizedBox(height: 24),
+                Text(
+                  message.replaceAll('Exception: ', ''),
+                  textAlign: TextAlign.center,
+                  style:
+                      const TextStyle(color: Colors.white38, fontSize: 11),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class MyApp extends ConsumerWidget {

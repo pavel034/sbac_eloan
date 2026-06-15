@@ -22,20 +22,30 @@ class LoanService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
   Future<List<LoanProduct>> getLoanProducts() async {
-    final snapshot = await _firestore
-        .collection('loan_products')
-        .where('isActive', isEqualTo: true)
-        .get();
-    return snapshot.docs
-        .map((doc) => LoanProduct.fromJson(doc.data(), doc.id))
-        .toList();
+    try {
+      final snapshot = await _firestore
+          .collection('loan_products')
+          .where('isActive', isEqualTo: true)
+          .get();
+      return snapshot.docs
+          .map((doc) => LoanProduct.fromJson(doc.data(), doc.id))
+          .toList();
+    } catch (_) {
+      return [];
+    }
   }
 
   Future<LoanProduct?> getLoanProduct(String productId) async {
-    final doc =
-        await _firestore.collection('loan_products').doc(productId).get();
-    if (!doc.exists) return null;
-    return LoanProduct.fromJson(doc.data()!, doc.id);
+    try {
+      final doc = await _firestore
+          .collection('loan_products')
+          .doc(productId)
+          .get();
+      if (!doc.exists) return null;
+      return LoanProduct.fromJson(doc.data()!, doc.id);
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<LoanApplication> submitLoanApplication({
@@ -84,72 +94,100 @@ class LoanService {
   }
 
   Future<List<LoanApplication>> getUserLoans(String userId) async {
-    final snapshot = await _firestore
-        .collection('loan_applications')
-        .where('userId', isEqualTo: userId)
-        .orderBy('createdAt', descending: true)
-        .get();
-    return snapshot.docs
-        .map((doc) => LoanApplication.fromJson(doc.data(), doc.id))
-        .toList();
+    try {
+      final snapshot = await _firestore
+          .collection('loan_applications')
+          .where('userId', isEqualTo: userId)
+          .orderBy('createdAt', descending: true)
+          .get();
+      return snapshot.docs
+          .map((doc) => LoanApplication.fromJson(doc.data(), doc.id))
+          .toList();
+    } catch (_) {
+      return [];
+    }
   }
 
   Future<LoanApplication?> getLoanDetails(String loanId) async {
-    final doc = await _firestore
-        .collection('loan_applications')
-        .doc(loanId)
-        .get();
-    if (!doc.exists) return null;
-    return LoanApplication.fromJson(doc.data()!, doc.id);
+    try {
+      final doc = await _firestore
+          .collection('loan_applications')
+          .doc(loanId)
+          .get();
+      if (!doc.exists) return null;
+      return LoanApplication.fromJson(doc.data()!, doc.id);
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<RepaymentSchedule?> getRepaymentSchedule(String loanId) async {
-    final doc =
-        await _firestore.collection('repayments').doc(loanId).get();
-    if (!doc.exists) return null;
-    return RepaymentSchedule.fromJson(doc.data()!, loanId);
+    try {
+      final doc =
+          await _firestore.collection('repayments').doc(loanId).get();
+      if (!doc.exists) return null;
+      return RepaymentSchedule.fromJson(doc.data()!, loanId);
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<LoanSummary> getUserLoanSummary(String userId) async {
-    final loans = await getUserLoans(userId);
-    return LoanSummary(
-      totalApplications: loans.length,
-      activeLoans: loans
-          .where((l) =>
-              l.status == LoanApplicationStatus.disbursed ||
-              l.status == LoanApplicationStatus.repaying)
-          .length,
-      pendingApplications: loans
-          .where((l) =>
-              l.status == LoanApplicationStatus.submitted ||
-              l.status == LoanApplicationStatus.underReview)
-          .length,
-      totalApproved: loans
-          .where((l) => l.approvedAmount != null)
-          .fold(0.0, (acc, l) => acc + (l.approvedAmount ?? 0)),
-    );
+    try {
+      final loans = await getUserLoans(userId);
+      return LoanSummary(
+        totalApplications: loans.length,
+        activeLoans: loans
+            .where((l) =>
+                l.status == LoanApplicationStatus.disbursed ||
+                l.status == LoanApplicationStatus.repaying)
+            .length,
+        pendingApplications: loans
+            .where((l) =>
+                l.status == LoanApplicationStatus.submitted ||
+                l.status == LoanApplicationStatus.underReview)
+            .length,
+        totalApproved: loans
+            .where((l) => l.approvedAmount != null)
+            .fold(0.0, (acc, l) => acc + (l.approvedAmount ?? 0)),
+      );
+    } catch (_) {
+      return const LoanSummary(
+          totalApplications: 0,
+          activeLoans: 0,
+          pendingApplications: 0,
+          totalApproved: 0);
+    }
   }
 
   Future<List<LoanApplication>> getPendingApplications() async {
-    final snapshot = await _firestore
-        .collection('loan_applications')
-        .where('status', whereIn: ['submitted', 'under_review'])
-        .get();
-    final results = snapshot.docs
-        .map((doc) => LoanApplication.fromJson(doc.data(), doc.id))
-        .toList();
-    results.sort((a, b) => b.createdAt.compareTo(a.createdAt));
-    return results;
+    try {
+      final snapshot = await _firestore
+          .collection('loan_applications')
+          .where('status', whereIn: ['submitted', 'under_review'])
+          .get();
+      final results = snapshot.docs
+          .map((doc) => LoanApplication.fromJson(doc.data(), doc.id))
+          .toList();
+      results.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      return results;
+    } catch (_) {
+      return [];
+    }
   }
 
   Future<List<LoanApplication>> getAllApplications() async {
-    final snapshot = await _firestore
-        .collection('loan_applications')
-        .orderBy('createdAt', descending: true)
-        .get();
-    return snapshot.docs
-        .map((doc) => LoanApplication.fromJson(doc.data(), doc.id))
-        .toList();
+    try {
+      final snapshot = await _firestore
+          .collection('loan_applications')
+          .orderBy('createdAt', descending: true)
+          .get();
+      return snapshot.docs
+          .map((doc) => LoanApplication.fromJson(doc.data(), doc.id))
+          .toList();
+    } catch (_) {
+      return [];
+    }
   }
 
   Future<void> approveLoan(
@@ -190,13 +228,11 @@ class LoanService {
     await _firestore.collection('loan_applications').doc(loanId).update({
       'status': 'rejected',
       'rejectionReason': rejectionReason,
-      if (cibStatus != null) 'cibStatus': cibStatus,
-      if (dbr != null) 'dbr': dbr,
-      if (totalFundedOutstanding != null)
-        'totalFundedOutstanding': totalFundedOutstanding,
-      if (totalNonFundedOutstanding != null)
-        'totalNonFundedOutstanding': totalNonFundedOutstanding,
-      if (creditRiskScore != null) 'creditRiskScore': creditRiskScore,
+      'cibStatus': ?cibStatus,
+      'dbr': ?dbr,
+      'totalFundedOutstanding': ?totalFundedOutstanding,
+      'totalNonFundedOutstanding': ?totalNonFundedOutstanding,
+      'creditRiskScore': ?creditRiskScore,
       'decidedAt': DateTime.now().toIso8601String(),
     });
   }
